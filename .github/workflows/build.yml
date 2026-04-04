@@ -43,7 +43,7 @@ jobs:
           JSON
 
       - name: Build Debug APK
-        run: ./gradlew assembleDebug --no-daemon
+        run: ./gradlew :app:compileDebugKotlin --no-daemon --info
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
