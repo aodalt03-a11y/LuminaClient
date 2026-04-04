@@ -41,12 +41,8 @@ class LitematicaElement : Element(
             val end = minOf(start + batchSize, pendingBlocks.size)
             for (i in start until end) {
                 val sb = pendingBlocks[i]
-                val worldPos = Vector3i.from(
-                    sb.pos.x + originX,
-                    sb.pos.y + originY,
-                    sb.pos.z + originZ
-                )
-                val runtimeId = getRuntimeId(sb.blockName)
+                val worldPos = Vector3i.from(sb.pos.x + originX, sb.pos.y + originY, sb.pos.z + originZ)
+                val runtimeId = try { session.blockMapping.getRuntimeId("minecraft:${sb.blockName}") } catch (e: Exception) { 0 }
                 if (runtimeId != 0) {
                     session.clientBound(UpdateBlockPacket().apply {
                         blockPosition = worldPos
@@ -57,14 +53,5 @@ class LitematicaElement : Element(
                 }
             }
         }
-    }
-
-
-        val defs = session.client?.peer?.codecHelper?.blockDefinitions ?: return 0
-        return try {
-            (0 until 10000).firstOrNull { 
-                defs.getDefinition(it)?.identifier?.contains(name, ignoreCase = true) == true 
-            } ?: 0
-        } catch (e: Exception) { 0 }
     }
 }
