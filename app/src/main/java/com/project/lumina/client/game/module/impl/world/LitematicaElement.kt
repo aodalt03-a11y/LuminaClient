@@ -5,7 +5,6 @@ import com.project.lumina.client.constructors.CheatCategory
 import com.project.lumina.client.constructors.Element
 import com.project.lumina.client.game.InterceptablePacket
 import org.cloudburstmc.math.vector.Vector3i
-import org.cloudburstmc.protocol.bedrock.data.definitions.BlockDefinition
 import org.cloudburstmc.protocol.bedrock.packet.PlayerAuthInputPacket
 import org.cloudburstmc.protocol.bedrock.packet.UpdateBlockPacket
 
@@ -47,17 +46,20 @@ class LitematicaElement : Element(
                     sb.pos.y + originY,
                     sb.pos.z + originZ
                 )
-                session.clientBound(UpdateBlockPacket().apply {
-                    blockPosition = worldPos
-                    dataLayer = 0
-                    flags.add(UpdateBlockPacket.Flag.NETWORK)
-                    definition = BlockDefinition { getRuntimeId(sb.blockName) }
-                })
+                val runtimeId = getRuntimeId(sb.blockName)
+                if (runtimeId != 0) {
+                    session.clientBound(UpdateBlockPacket().apply {
+                        blockPosition = worldPos
+                        dataLayer = 0
+                        flags.add(UpdateBlockPacket.Flag.NETWORK)
+                        definition = session.blockMapping.getDefinition(runtimeId)
+                    })
+                }
             }
         }
     }
 
-    private fun getRuntimeId(name: String): Int {
+
         val defs = session.client?.peer?.codecHelper?.blockDefinitions ?: return 0
         return try {
             (0 until 10000).firstOrNull { 
