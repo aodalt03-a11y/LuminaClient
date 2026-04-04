@@ -68,24 +68,7 @@ class SessionManager(private val context: Context) {
     }
 
     private fun hasValidSession(): Boolean {
-        val sessionFile = File(context.filesDir, SESSION_FILE)
-
-        if (!sessionFile.exists()) {
-            return false
-        }
-
-        return try {
-            val encodedData = sessionFile.readText()
-            val decodedBytes = Base64.decode(encodedData, Base64.DEFAULT)
-            val timestamp = String(decodedBytes).toLong()
-
-            val currentTime = System.currentTimeMillis()
-            val elapsed = currentTime - timestamp
-
-            elapsed < SESSION_DURATION_MS
-        } catch (e: Exception) {
-            false
-        }
+        return true
     }
 
     fun saveSession() {
