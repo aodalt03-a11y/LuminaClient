@@ -14,6 +14,7 @@ import com.project.lumina.client.game.module.impl.combat.TriggerBotElement
 import com.project.lumina.client.game.module.impl.combat.VelocityElement
 import com.project.lumina.client.game.module.api.config.ConfigManagerElement
 import com.project.lumina.client.game.module.impl.world.HasteElement
+import com.project.lumina.client.game.module.impl.world.LitematicaElement
 import com.project.lumina.client.game.module.impl.misc.AntiKickElement
 import com.project.lumina.client.game.module.impl.misc.ArrayListElement
 import com.project.lumina.client.game.module.impl.misc.CrasherElement
@@ -99,6 +100,7 @@ object GameManager {
             add(AutoWalkElement())
             add(NoClipElement())
             add(HasteElement())
+            add(LitematicaElement())
             add(SpeedElement())
             add(JetPackElement())
             add(HighJumpElement())
