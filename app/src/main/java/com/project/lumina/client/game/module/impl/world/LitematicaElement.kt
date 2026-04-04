@@ -42,7 +42,7 @@ class LitematicaElement : Element(
             for (i in start until end) {
                 val sb = pendingBlocks[i]
                 val worldPos = Vector3i.from(sb.pos.x + originX, sb.pos.y + originY, sb.pos.z + originZ)
-                val runtimeId = try { session.blockMapping.getRuntimeId("minecraft:${sb.blockName}") } catch (e: Exception) { 0 }
+                val runtimeId = try { session.blockMapping.getRuntimeByIdentifier("minecraft:${sb.blockName}") } catch (e: Exception) { 0 }
                 if (runtimeId != 0) {
                     session.clientBound(UpdateBlockPacket().apply {
                         blockPosition = worldPos
