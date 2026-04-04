@@ -1,32 +1,23 @@
 package com.project.lumina.client.game.module.impl.world
 
+import android.content.Intent
+import android.net.Uri
 import com.project.lumina.client.R
+import com.project.lumina.client.application.AppContext
 import com.project.lumina.client.constructors.CheatCategory
 import com.project.lumina.client.constructors.Element
 import com.project.lumina.client.game.InterceptablePacket
-import com.project.lumina.client.game.module.api.setting.stringValue
 import org.cloudburstmc.math.vector.Vector3i
 import org.cloudburstmc.protocol.bedrock.packet.PlayerAuthInputPacket
 import org.cloudburstmc.protocol.bedrock.packet.UpdateBlockPacket
 import java.io.File
+import java.io.InputStream
 
 class LitematicaElement : Element(
     name = "Litematica",
     category = CheatCategory.World,
     displayNameResId = R.string.module_litematica
 ) {
-    private fun getSchematicFiles(): List<String> {
-        val dirs = listOf("/sdcard/Download", "/sdcard/Downloads", "/sdcard/Documents")
-        val exts = listOf(".litematic", ".schematic", ".nbt")
-        val files = mutableListOf("none")
-        for (dir in dirs) {
-            File(dir).listFiles()?.filter { f -> exts.any { f.name.endsWith(it) } }
-                ?.forEach { files.add(it.absolutePath) }
-        }
-        return files.distinct()
-    }
-
-    private val schematicFile by stringValue("File", "none", getSchematicFiles())
     private val offsetX by floatValue("OffsetX", 0f, -100f..100f)
     private val offsetY by floatValue("OffsetY", 0f, -100f..100f)
     private val offsetZ by floatValue("OffsetZ", 0f, -100f..100f)
@@ -34,15 +25,40 @@ class LitematicaElement : Element(
     private var pendingBlocks: List<SchematicBlock> = emptyList()
     private var placed = false
     private var tickCounter = 0L
+    private var selectedUri: Uri? = null
+
+    companion object {
+        var pendingInstance: LitematicaElement? = null
+        fun onFilePicked(uri: Uri) {
+            pendingInstance?.loadFromUri(uri)
+        }
+    }
+
+    fun loadFromUri(uri: Uri) {
+        try {
+            val ctx = AppContext.instance
+            val name = uri.lastPathSegment ?: "file.litematic"
+            val stream: InputStream = ctx.contentResolver.openInputStream(uri) ?: return
+            pendingBlocks = LitematicaParser.parse(stream, name)
+            placed = false
+            tickCounter = 0L
+            selectedUri = uri
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
 
     override fun onEnabled() {
         super.onEnabled()
-        if (schematicFile == "none") return
-        val file = File(schematicFile)
-        if (!file.exists()) return
-        pendingBlocks = LitematicaParser.parse(file.inputStream(), file.name)
-        placed = false
-        tickCounter = 0L
+        pendingInstance = this
+        val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+            type = "*/*"
+            addCategory(Intent.CATEGORY_OPENABLE)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        AppContext.instance.startActivity(Intent.createChooser(intent, "Select Schematic").apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        })
     }
 
     override fun beforePacketBound(interceptablePacket: InterceptablePacket) {
