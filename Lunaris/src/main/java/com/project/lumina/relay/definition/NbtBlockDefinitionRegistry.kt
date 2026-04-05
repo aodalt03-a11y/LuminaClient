@@ -13,12 +13,17 @@ class NbtBlockDefinitionRegistry(
 ) : DefinitionRegistry<BlockDefinition> {
 
     private val definitions = Int2ObjectOpenHashMap<NbtBlockDefinition>()
+    private val nameToId = mutableMapOf<String, Int>()
 
     init {
         var counter = 0
         for (definition in definitions) {
             val runtimeId = if (hashed) BlockPaletteUtils.createHash(definition) else counter++
-            this.definitions.put(runtimeId, NbtBlockDefinition(runtimeId, definition))
+            val def = NbtBlockDefinition(runtimeId, definition)
+            this.definitions.put(runtimeId, def)
+            val name = definition.getString("name") ?: continue
+            nameToId[name] = runtimeId
+            nameToId[name.substringAfter(":")] = runtimeId
         }
     }
 
@@ -30,11 +35,17 @@ class NbtBlockDefinitionRegistry(
         return definition != null && (definitions.get(definition.runtimeId) == definition)
     }
 
+    fun getRuntimeIdByName(name: String): Int {
+        return nameToId[name]
+            ?: nameToId["minecraft:$name"]
+            ?: nameToId[name.substringAfter(":")]
+            ?: 0
+    }
+
     @JvmRecord
     data class NbtBlockDefinition(val runtimeId: Int, val tag: NbtMap) : BlockDefinition {
         override fun getRuntimeId(): Int {
             return runtimeId
         }
     }
-
 }
