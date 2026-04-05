@@ -169,8 +169,7 @@ class LitematicaElement : Element(
             }
         }
     }
-}
-
-fun getBlockCounts(): Map<String, Int> {
-    return pendingBlocks.groupingBy { it.blockName }.eachCount()
+    fun getBlockCounts(): Map<String, Int> {
+        return pendingBlocks.groupingBy { it.blockName }.eachCount()
+    }
 }

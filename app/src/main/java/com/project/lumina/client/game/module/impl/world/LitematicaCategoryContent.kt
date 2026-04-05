@@ -25,30 +25,32 @@ fun LitematicaCategoryContent() {
             return
         }
 
-        // Block resource list
-        val blocks = LitematicaElement.pendingInstance?.let {
-            remember(it) {
-                it.getBlockCounts()
-            }
-        } ?: emptyMap()
+        val instance = LitematicaElement.pendingInstance
+        if (instance == null) {
+            Text("No schematic loaded.\nEnable Litematica module first.", color = Color.Gray, fontSize = 12.sp)
+            return
+        }
 
-        if (blocks.isEmpty()) {
-            Text("No schematic loaded. Enable Litematica module first.", color = Color.Gray, fontSize = 12.sp)
-        } else {
-            Text("Blocks needed: ${blocks.values.sum()} total", color = Color.White, fontSize = 13.sp)
-            Spacer(modifier = Modifier.height(6.dp))
-            LazyColumn {
-                items(blocks.entries.sortedByDescending { it.value }.toList()) { (name, count) ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(name, color = Color.White, fontSize = 12.sp)
-                        Text("x$count", color = Color(0xFF4CAF50), fontSize = 12.sp)
-                    }
-                    HorizontalDivider(color = Color.White.copy(alpha = 0.1f), thickness = 0.5.dp)
+        val blockCounts: List<Pair<String, Int>> = instance.getBlockCounts()
+            .entries
+            .map { entry -> Pair(entry.key, entry.value) }
+            .sortedByDescending { it.second }
+
+        val total = blockCounts.sumOf { it.second }
+        Text("Blocks needed: $total total", color = Color.White, fontSize = 13.sp)
+        Spacer(modifier = Modifier.height(6.dp))
+
+        LazyColumn {
+            items(blockCounts) { pair ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(pair.first, color = Color.White, fontSize = 12.sp)
+                    Text("x${pair.second}", color = Color(0xFF4CAF50), fontSize = 12.sp)
                 }
+                HorizontalDivider(color = Color.White.copy(alpha = 0.1f), thickness = 0.5.dp)
             }
         }
     }
