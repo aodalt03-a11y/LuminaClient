@@ -136,7 +136,7 @@ class Services : Service() {
 
                 // Start Litematica Go proxy
                 val targetServer = "${captureModeModel.serverHostName}:${captureModeModel.serverPort}"
-                com.project.lumina.client.game.module.impl.world.LitematicaProxyManager.start(targetServer)
+                com.project.lumina.client.game.module.impl.world.LitematicaProxyManager.startWithToastOnFail(targetServer)
                 Thread.sleep(1500) // Give proxy time to start
 
                 val relayHost = if (com.project.lumina.client.game.module.impl.world.LitematicaProxyManager.isRunning)
