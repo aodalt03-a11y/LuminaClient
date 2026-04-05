@@ -9,7 +9,7 @@ import com.project.lumina.client.constructors.CheatCategory
 import com.project.lumina.client.constructors.Element
 import com.project.lumina.client.game.InterceptablePacket
 import org.cloudburstmc.math.vector.Vector3i
-import org.cloudburstmc.protocol.bedrock.packet.MovePlayerPacket
+import org.cloudburstmc.protocol.bedrock.packet.PlayerAuthInputPacket
 import org.cloudburstmc.protocol.bedrock.packet.UpdateBlockPacket
 import java.io.File
 
@@ -126,7 +126,7 @@ class LitematicaElement : Element(
         val packet = interceptablePacket.packet
 
         // Handle NextFile toggle
-        if (packet is MovePlayerPacket && nextFile) {
+        if (packet is PlayerAuthInputPacket && nextFile) {
             if (schematicFiles.isNotEmpty()) {
                 currentFileIndex = (currentFileIndex + 1) % schematicFiles.size
                 loadFile(schematicFiles[currentFileIndex])
@@ -136,7 +136,7 @@ class LitematicaElement : Element(
 
         if (placed || pendingBlocks.isEmpty()) return
 
-        if (packet is MovePlayerPacket) {
+        if (packet is PlayerAuthInputPacket) {
             tickCounter++
             if (tickCounter % 5L != 0L) return
             val batchSize = 64
