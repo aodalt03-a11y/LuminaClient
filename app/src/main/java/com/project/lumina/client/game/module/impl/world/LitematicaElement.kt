@@ -8,7 +8,7 @@ import com.project.lumina.client.constructors.CheatCategory
 import com.project.lumina.client.constructors.Element
 import com.project.lumina.client.game.InterceptablePacket
 import org.cloudburstmc.math.vector.Vector3i
-import org.cloudburstmc.protocol.bedrock.packet.PlayerAuthInputPacket
+import org.cloudburstmc.protocol.bedrock.packet.MovePlayerPacket
 import org.cloudburstmc.protocol.bedrock.packet.UpdateBlockPacket
 import java.io.File
 import java.io.InputStream
@@ -86,7 +86,7 @@ class LitematicaElement : Element(
     override fun beforePacketBound(interceptablePacket: InterceptablePacket) {
         if (!isEnabled || placed || pendingBlocks.isEmpty()) return
         val packet = interceptablePacket.packet
-        if (packet is PlayerAuthInputPacket) {
+        if (packet is MovePlayerPacket) {
             tickCounter++
             if (tickCounter % 5L != 0L) return
             val batchSize = 64
