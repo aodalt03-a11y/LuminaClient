@@ -18,13 +18,7 @@ object LitematicaProxyManager {
         if (isRunning) stop()
         val ctx = AppContext.instance
 
-        val bin = File(ctx.codeCacheDir, "bedrockforge-android")
-        if (!bin.exists()) {
-            ctx.assets.open("bedrockforge-android").use { input ->
-                bin.outputStream().use { output -> input.copyTo(output) }
-            }
-            bin.setExecutable(true)
-        }
+        val bin = File(ctx.applicationInfo.nativeLibraryDir, "liblunaproxy.so")
 
         val blocksJson = File(ctx.filesDir, "bedrock_blocks.json")
         if (!blocksJson.exists()) {
