@@ -71,6 +71,7 @@ class LitematicaElement : Element(
         placed = false
         tickCounter = 0L
         android.util.Log.d("Litematica", "Loaded test schematic: \${pendingBlocks.size} blocks")
+        android.widget.Toast.makeText(AppContext.instance, "Litematica: \${pendingBlocks.size} blocks loaded", android.widget.Toast.LENGTH_SHORT).show()
         pendingInstance = this
         val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
             type = "*/*"
