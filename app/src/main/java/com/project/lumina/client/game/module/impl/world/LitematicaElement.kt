@@ -48,6 +48,14 @@ class LitematicaElement : Element(
         }
     }
 
+    private fun debugBlockMapping() {
+        val testNames = listOf("minecraft:stone", "minecraft:glass", "minecraft:dirt", "minecraft:planks")
+        for (name in testNames) {
+            val id = try { session.blockMapping.getRuntimeByIdentifier(name) } catch (e: Exception) { -1 }
+            android.util.Log.d("Litematica", "identifier '\$name' -> runtimeId=\$id")
+        }
+    }
+
     private fun buildTestSchematic(): List<SchematicBlock> {
         val blocks = mutableListOf<SchematicBlock>()
         for (x in 0..4) for (z in 0..4) {
@@ -70,6 +78,7 @@ class LitematicaElement : Element(
         pendingBlocks = buildTestSchematic()
         placed = false
         tickCounter = 0L
+        debugBlockMapping()
         android.util.Log.d("Litematica", "Loaded test schematic: \${pendingBlocks.size} blocks")
         android.widget.Toast.makeText(AppContext.instance, "Litematica: \${pendingBlocks.size} blocks loaded", android.widget.Toast.LENGTH_SHORT).show()
         pendingInstance = this
