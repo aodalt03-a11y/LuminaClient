@@ -15,7 +15,7 @@ import java.io.File
 
 class LitematicaElement : Element(
     name = "Litematica",
-    category = CheatCategory.Litematica,
+    category = CheatCategory.World,
     displayNameResId = R.string.module_litematica
 ) {
     private val offsetX by floatValue("OffsetX", 0f, -200f..200f)
