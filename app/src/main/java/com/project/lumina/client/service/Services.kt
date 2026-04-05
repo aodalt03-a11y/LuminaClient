@@ -1,5 +1,6 @@
 package com.project.lumina.client.service
 
+import com.project.lumina.client.game.module.impl.world.LitematicaProxyManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
