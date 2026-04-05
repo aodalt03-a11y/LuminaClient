@@ -48,8 +48,29 @@ class LitematicaElement : Element(
         }
     }
 
+    private fun buildTestSchematic(): List<SchematicBlock> {
+        val blocks = mutableListOf<SchematicBlock>()
+        for (x in 0..4) for (z in 0..4) {
+            blocks.add(SchematicBlock(Vector3i.from(x, 0, z), "stone"))
+        }
+        for (x in 0..4) for (z in 0..4) {
+            blocks.add(SchematicBlock(Vector3i.from(x, 3, z), "glass"))
+        }
+        for (y in 0..3) {
+            blocks.add(SchematicBlock(Vector3i.from(0, y, 0), "stone"))
+            blocks.add(SchematicBlock(Vector3i.from(4, y, 0), "stone"))
+            blocks.add(SchematicBlock(Vector3i.from(0, y, 4), "stone"))
+            blocks.add(SchematicBlock(Vector3i.from(4, y, 4), "stone"))
+        }
+        return blocks
+    }
+
     override fun onEnabled() {
         super.onEnabled()
+        pendingBlocks = buildTestSchematic()
+        placed = false
+        tickCounter = 0L
+        android.util.Log.d("Litematica", "Loaded test schematic: \${pendingBlocks.size} blocks")
         pendingInstance = this
         val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
             type = "*/*"
