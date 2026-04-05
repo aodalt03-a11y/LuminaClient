@@ -213,6 +213,15 @@ class NetBound(val luminaRelaySession: LuminaRelaySession) : ComposedPacketHandl
                     Log.e("NetBound", "Failed to set up codecHelper itemDefinitions", e)
                 }
 
+                // Populate Litematica block registry from server palette
+                try {
+                    if (packet.blockProperties != null && packet.blockProperties.isNotEmpty()) {
+                        com.project.lumina.client.game.module.impl.world.LitematicaElement.updateRegistry(packet.blockProperties)
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("Litematica", "Failed to update block registry", e)
+                }
+
                 if (!startGameReceived) {
                     startGameReceived = true
                     Log.e("StartGamePacket", packet.toString())

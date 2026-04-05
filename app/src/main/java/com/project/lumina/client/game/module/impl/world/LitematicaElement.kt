@@ -31,6 +31,19 @@ class LitematicaElement : Element(
     private var tickCounter = 0L
 
     companion object {
+        // Block name -> runtime ID, populated from StartGamePacket
+        val serverBlockRegistry = mutableMapOf<String, Int>()
+
+        fun updateRegistry(blocks: List<org.cloudburstmc.protocol.bedrock.data.BlockPropertyData>) {
+            serverBlockRegistry.clear()
+            blocks.forEachIndexed { index, block ->
+                val name = block.name.substringAfter(":")
+                serverBlockRegistry[name] = index
+                serverBlockRegistry[block.name] = index
+            }
+            android.util.Log.d("Litematica", "Registry updated: \${serverBlockRegistry.size} blocks")
+        }
+
         var pendingInstance: LitematicaElement? = null
         fun onFilePicked(uri: android.net.Uri) {
             pendingInstance?.loadFromUri(uri)
@@ -150,13 +163,12 @@ class LitematicaElement : Element(
                 val sb = pendingBlocks[i]
                 val worldPos = Vector3i.from(sb.pos.x + ox, sb.pos.y + oy, sb.pos.z + oz)
                 val runtimeId = try {
-                    var id = session.blockMapping.getRuntimeByIdentifier("minecraft:${sb.blockName}")
-                    if (id == 0) id = session.blockMapping.getRuntimeByIdentifier("minecraft:${sb.blockName.lowercase()}")
-                    if (id == 0) {
-                        (0..10000).firstOrNull { rid ->
-                            session.blockMapping.getDefinition(rid).identifier.contains(sb.blockName, ignoreCase = true)
-                        } ?: 0
-                    } else id
+                    val name = sb.blockName.lowercase()
+                    serverBlockRegistry[name]
+                        ?: serverBlockRegistry["minecraft:$name"]
+                        ?: serverBlockRegistry.entries.firstOrNull { it.key.contains(name, ignoreCase = true) }?.value
+                        ?: session.blockMapping.getRuntimeByIdentifier("minecraft:$name")
+                        ?: 0
                 } catch (e: Exception) { 0 }
                 if (runtimeId != 0) {
                     session.clientBound(UpdateBlockPacket().apply {
