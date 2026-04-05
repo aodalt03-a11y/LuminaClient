@@ -3,6 +3,8 @@ package com.project.lumina.client.game.module.impl.world
 import android.util.Log
 import android.widget.Toast
 import com.project.lumina.client.application.AppContext
+import android.os.Handler
+import android.os.Looper
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
@@ -37,7 +39,7 @@ object LitematicaProxyManager {
         proxyProcess = pb.start()
         isRunning = true
         Log.d("LunaProxy", "Started -> $serverAddress")
-        Toast.makeText(ctx, "LunaProxy started on port $listenPort", Toast.LENGTH_SHORT).show()
+        Handler(Looper.getMainLooper()).post { Toast.makeText(ctx, "LunaProxy started on port $listenPort", Toast.LENGTH_SHORT).show() }
 
         Thread {
             val reader = BufferedReader(InputStreamReader(proxyProcess!!.inputStream))
@@ -55,7 +57,7 @@ object LitematicaProxyManager {
         try {
             start(serverAddress)
         } catch (e: Exception) {
-            Toast.makeText(AppContext.instance, "LunaProxy failed: ${e.message}", Toast.LENGTH_LONG).show()
+            Handler(Looper.getMainLooper()).post { Toast.makeText(AppContext.instance, "LunaProxy failed: ${e.message}", Toast.LENGTH_LONG).show() }
             Log.e("LunaProxy", "Failed to start", e)
         }
     }
