@@ -174,7 +174,7 @@ class LitematicaElement : Element(
                     session.clientBound(UpdateBlockPacket().apply {
                         blockPosition = worldPos
                         dataLayer = 0
-                        flags.add(UpdateBlockPacket.Flag.NETWORK)
+                        flags.addAll(UpdateBlockPacket.FLAG_ALL)
                         definition = session.blockMapping.getDefinition(runtimeId)
                     })
                 }
