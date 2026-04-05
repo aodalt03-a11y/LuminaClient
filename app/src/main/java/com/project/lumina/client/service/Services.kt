@@ -134,11 +134,22 @@ class Services : Service() {
                     }
                 }
 
+                // Start Litematica Go proxy
+                val targetServer = "${captureModeModel.serverHostName}:${captureModeModel.serverPort}"
+                com.project.lumina.client.game.module.impl.world.LitematicaProxyManager.start(targetServer)
+                Thread.sleep(1500) // Give proxy time to start
+
+                val relayHost = if (com.project.lumina.client.game.module.impl.world.LitematicaProxyManager.isRunning)
+                    "127.0.0.1" else captureModeModel.serverHostName
+                val relayPort = if (com.project.lumina.client.game.module.impl.world.LitematicaProxyManager.isRunning)
+                    com.project.lumina.client.game.module.impl.world.LitematicaProxyManager.listenPort
+                    else captureModeModel.serverPort
+
                 runCatching {
                     luminaRelay = captureLuminaRelay(
                         remoteAddress = LuminaAddress(
-                            captureModeModel.serverHostName,
-                            captureModeModel.serverPort
+                            relayHost,
+                            relayPort
                         )
                     ) {
                         initModules(this)
@@ -166,6 +177,7 @@ class Services : Service() {
                 currentServerHostName = ""
                 PresenceStateManager.onRelayDisconnected()
                 luminaRelay?.disconnect()
+                com.project.lumina.client.game.module.impl.world.LitematicaProxyManager.stop()
                 thread?.interrupt()
                 thread = null
 
