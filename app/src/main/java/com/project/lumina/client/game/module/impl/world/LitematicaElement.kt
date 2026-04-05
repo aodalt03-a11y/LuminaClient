@@ -1,187 +1,126 @@
 package com.project.lumina.client.game.module.impl.world
 
-import android.content.Intent
-import android.os.Environment
-import android.widget.Toast
-import com.project.lumina.client.R
-import com.project.lumina.client.application.AppContext
-import com.project.lumina.client.constructors.CheatCategory
-import com.project.lumina.client.constructors.Element
-import com.project.lumina.client.game.InterceptablePacket
-import org.cloudburstmc.math.vector.Vector3i
-import org.cloudburstmc.protocol.bedrock.packet.PlayerAuthInputPacket
+import android.util.Log
+import com.project.lumina.client.game.CheatCategory
+import com.project.lumina.client.game.element.Element
+import com.project.lumina.client.relay.NetBound
+import org.cloudburstmc.protocol.bedrock.packet.BedrockPacket
+import org.cloudburstmc.protocol.bedrock.packet.TextPacket
 import org.cloudburstmc.protocol.bedrock.packet.UpdateBlockPacket
+import org.cloudburstmc.math.vector.Vector3i
 import java.io.File
 
 class LitematicaElement : Element(
-    name = "Litematica",
-    category = CheatCategory.World,
-    displayNameResId = R.string.module_litematica
+    name        = "Litematica",
+    displayName = "Litematica",
+    category    = CheatCategory.World,
+    desc        = "Place ghost block schematics in-game"
 ) {
-    private val offsetX by floatValue("OffsetX", 0f, -200f..200f)
-    private val offsetY by floatValue("OffsetY", 0f, -200f..200f)
-    private val offsetZ by floatValue("OffsetZ", 0f, -200f..200f)
-    private val useTestSchematic by boolValue("TestMode", true)
-    private val nextFile by boolValue("NextFile", false)
-
-    private var schematicFiles: List<File> = emptyList()
-    private var currentFileIndex = 0
-    private var pendingBlocks: List<SchematicBlock> = emptyList()
-    private var placed = false
-    private var tickCounter = 0L
-
     companion object {
-        // Block name -> runtime ID, populated from StartGamePacket
-        val serverBlockRegistry = mutableMapOf<String, Int>()
+        private const val TAG = "LitematicaElement"
+        val SCHEMATIC_DIR = "/sdcard/BedrockForge/schematics"
+    }
 
-        fun updateRegistry(blocks: List<org.cloudburstmc.protocol.bedrock.data.BlockPropertyData>) {
-            serverBlockRegistry.clear()
-            blocks.forEachIndexed { index, block ->
-                val name = block.name.substringAfter(":")
-                serverBlockRegistry[name] = index
-                serverBlockRegistry[block.name] = index
+    private var blocks: List<SchematicBlock> = emptyList()
+    private var originX = 0; private var originY = 0; private var originZ = 0
+    private var currentLayer: Int? = null
+    private var ghostActive = false
+    private var currentFile = ""
+
+    override fun beforePacketBound(packet: BedrockPacket, session: NetBound): Boolean {
+        if (!isEnabled) return false
+        if (packet is TextPacket) handleChat(packet.message.trim(), session)
+        return false
+    }
+
+    private fun handleChat(msg: String, session: NetBound) {
+        if (!msg.startsWith("%schem")) return
+        val parts = msg.split(" ")
+        when (parts.getOrNull(1)?.lowercase()) {
+            "load" -> {
+                val name = parts.getOrNull(2) ?: run { chat(session, "§cUsage: %schem load <filename>"); return }
+                loadSchematic(name, session)
             }
-            android.util.Log.d("Litematica", "Registry updated: \${serverBlockRegistry.size} blocks")
-        }
-
-        var pendingInstance: LitematicaElement? = null
-        fun onFilePicked(uri: android.net.Uri) {
-            pendingInstance?.loadFromUri(uri)
-        }
-    }
-
-    private fun scanFiles(): List<File> {
-        val exts = listOf(".litematic", ".schematic", ".nbt")
-        val dirs = listOf(
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
-            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS),
-            File(Environment.getExternalStorageDirectory(), "Litematica"),
-            File(Environment.getExternalStorageDirectory(), "games/com.mojang")
-        )
-        val found = mutableListOf<File>()
-        for (dir in dirs) {
-            dir.listFiles()?.filter { f -> exts.any { f.name.endsWith(it, ignoreCase = true) } }
-                ?.let { found.addAll(it) }
-        }
-        return found.sortedByDescending { it.lastModified() }
-    }
-
-    fun loadFromUri(uri: android.net.Uri) {
-        try {
-            val ctx = AppContext.instance
-            val name = uri.lastPathSegment ?: "file.litematic"
-            val stream = ctx.contentResolver.openInputStream(uri) ?: return
-            pendingBlocks = LitematicaParser.parse(stream, name)
-            placed = false
-            tickCounter = 0L
-            Toast.makeText(ctx, "Loaded ${pendingBlocks.size} blocks from file", Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) {
-            e.printStackTrace()
+            "place" -> {
+                val x = parts.getOrNull(2)?.toIntOrNull()
+                val y = parts.getOrNull(3)?.toIntOrNull()
+                val z = parts.getOrNull(4)?.toIntOrNull()
+                if (x == null || y == null || z == null) { chat(session, "§cUsage: %schem place <x> <y> <z>"); return }
+                originX = x; originY = y; originZ = z
+                placeGhost(session)
+            }
+            "layer" -> {
+                currentLayer = parts.getOrNull(2)?.toIntOrNull()
+                if (ghostActive) placeGhost(session)
+                chat(session, if (currentLayer != null) "§aShowing layer §e${currentLayer}" else "§aShowing all layers")
+            }
+            "clear" -> { blocks = emptyList(); ghostActive = false; currentFile = ""; chat(session, "§aSchematic cleared") }
+            "list"  -> listSchematics(session)
+            else    -> {
+                chat(session, "§6=== Litematica Commands ===")
+                chat(session, "§e%schem load <file>   §7- Load schematic")
+                chat(session, "§e%schem place <x y z> §7- Place at coords")
+                chat(session, "§e%schem layer <n>     §7- Single layer")
+                chat(session, "§e%schem layer         §7- All layers")
+                chat(session, "§e%schem clear         §7- Remove ghosts")
+                chat(session, "§e%schem list          §7- List files")
+            }
         }
     }
 
-    private fun loadFile(file: File) {
-        try {
-            pendingBlocks = LitematicaParser.parse(file.inputStream(), file.name)
-            placed = false
-            tickCounter = 0L
-            Toast.makeText(AppContext.instance, "Loaded: ${file.name} (${pendingBlocks.size} blocks)", Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) {
-            Toast.makeText(AppContext.instance, "Failed to load: ${file.name}", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private fun buildTestSchematic(): List<SchematicBlock> {
-        val blocks = mutableListOf<SchematicBlock>()
-        for (x in 0..4) for (z in 0..4) blocks.add(SchematicBlock(Vector3i.from(x, 0, z), "stone"))
-        for (x in 0..4) for (z in 0..4) blocks.add(SchematicBlock(Vector3i.from(x, 3, z), "glass"))
-        for (y in 0..3) {
-            blocks.add(SchematicBlock(Vector3i.from(0, y, 0), "stone"))
-            blocks.add(SchematicBlock(Vector3i.from(4, y, 0), "stone"))
-            blocks.add(SchematicBlock(Vector3i.from(0, y, 4), "stone"))
-            blocks.add(SchematicBlock(Vector3i.from(4, y, 4), "stone"))
-        }
-        return blocks
-    }
-
-    override fun onEnabled() {
-        super.onEnabled()
-        pendingInstance = this
-        placed = false
-        tickCounter = 0L
-
-        if (useTestSchematic) {
-            pendingBlocks = buildTestSchematic()
-            Toast.makeText(AppContext.instance, "Test schematic: ${pendingBlocks.size} blocks", Toast.LENGTH_SHORT).show()
+    private fun loadSchematic(name: String, session: NetBound) {
+        val dir = File(SCHEMATIC_DIR).also { if (!it.exists()) it.mkdirs() }
+        val file = listOf(File(dir, name), File(dir, "$name.litematic"), File(dir, "$name.schematic"), File(dir, "$name.nbt"))
+            .firstOrNull { it.exists() } ?: run {
+            chat(session, "§cFile not found: $name")
+            chat(session, "§7Put files in /sdcard/BedrockForge/schematics/")
             return
         }
-
-        schematicFiles = scanFiles()
-        if (schematicFiles.isEmpty()) {
-            Toast.makeText(AppContext.instance, "No schematic files found! Put .litematic/.schematic in Downloads", Toast.LENGTH_LONG).show()
-            val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
-                type = "*/*"
-                addCategory(Intent.CATEGORY_OPENABLE)
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-            AppContext.instance.startActivity(Intent.createChooser(intent, "Select Schematic").apply {
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK
-            })
-            return
-        }
-
-        loadFile(schematicFiles[currentFileIndex])
+        chat(session, "§7Loading §e${file.name}§7...")
+        val parsed = LitematicaParser.parse(file)
+        if (parsed.isEmpty()) { chat(session, "§cParse failed or empty"); return }
+        blocks = parsed; currentFile = file.name; ghostActive = false
+        chat(session, "§aLoaded §e${parsed.size} §ablocks from §e${file.name}")
+        chat(session, "§7Use: §e%schem place <x> <y> <z>")
     }
 
-    override fun beforePacketBound(interceptablePacket: InterceptablePacket) {
-        if (!isEnabled) return
-
-        val packet = interceptablePacket.packet
-
-        // Handle NextFile toggle
-        if (packet is PlayerAuthInputPacket && nextFile) {
-            if (schematicFiles.isNotEmpty()) {
-                currentFileIndex = (currentFileIndex + 1) % schematicFiles.size
-                loadFile(schematicFiles[currentFileIndex])
+    private fun placeGhost(session: NetBound) {
+        if (blocks.isEmpty()) { chat(session, "§cNo schematic loaded"); return }
+        val toPlace = if (currentLayer != null) blocks.filter { it.y == currentLayer } else blocks
+        if (toPlace.isEmpty()) { chat(session, "§cNo blocks on layer ${currentLayer}"); return }
+        var sent = 0
+        for (block in toPlace) {
+            val rid = NbtBlockDefinitionRegistry.getRuntimeIdByName(block.name)
+            if (rid < 0) { Log.w(TAG, "No runtimeId for: ${block.name}"); continue }
+            val pkt = UpdateBlockPacket().apply {
+                blockPosition = Vector3i.from(block.x + originX, block.y + originY, block.z + originZ)
+                this.runtimeId = rid.toLong()
+                dataLayer = 0
+                flags.add(UpdateBlockPacket.Flag.NETWORK)
             }
-            return
+            session.clientBound(pkt)
+            sent++
         }
-
-        if (placed || pendingBlocks.isEmpty()) return
-
-        if (packet is PlayerAuthInputPacket) {
-            tickCounter++
-            if (tickCounter % 5L != 0L) return
-            val batchSize = 64
-            val start = ((tickCounter / 5L - 1) * batchSize).toInt()
-            if (start >= pendingBlocks.size) { placed = true; return }
-            val end = minOf(start + batchSize, pendingBlocks.size)
-            val ox = session.localPlayer.posX.toInt() + offsetX.toInt()
-            val oy = session.localPlayer.posY.toInt() + offsetY.toInt()
-            val oz = session.localPlayer.posZ.toInt() + offsetZ.toInt()
-            for (i in start until end) {
-                val sb = pendingBlocks[i]
-                val worldPos = Vector3i.from(sb.pos.x + ox, sb.pos.y + oy, sb.pos.z + oz)
-                val runtimeId = try {
-                    val name = sb.blockName.lowercase()
-                    serverBlockRegistry[name]
-                        ?: serverBlockRegistry["minecraft:$name"]
-                        ?: serverBlockRegistry.entries.firstOrNull { it.key.contains(name, ignoreCase = true) }?.value
-                        ?: session.blockMapping.getRuntimeByIdentifier("minecraft:$name")
-                        ?: 0
-                } catch (e: Exception) { 0 }
-                if (runtimeId != 0) {
-                    session.clientBound(UpdateBlockPacket().apply {
-                        blockPosition = worldPos
-                        dataLayer = 0
-                        flags.addAll(UpdateBlockPacket.FLAG_ALL)
-                        definition = session.blockMapping.getDefinition(runtimeId)
-                    })
-                }
-            }
-        }
+        ghostActive = true
+        chat(session, "§aPlaced §e$sent§a ghost blocks${if (currentLayer != null) " (layer ${currentLayer})" else ""}")
     }
-    fun getBlockCounts(): Map<String, Int> {
-        return pendingBlocks.groupingBy { it.blockName }.eachCount()
+
+    private fun listSchematics(session: NetBound) {
+        val dir = File(SCHEMATIC_DIR)
+        if (!dir.exists()) { chat(session, "§cFolder not found: $SCHEMATIC_DIR"); return }
+        val files = dir.listFiles { f -> f.name.endsWith(".litematic") || f.name.endsWith(".schematic") || f.name.endsWith(".nbt") }
+        if (files.isNullOrEmpty()) { chat(session, "§cNo schematic files found"); return }
+        chat(session, "§6=== Schematics (${files.size}) ===")
+        files.sortedBy { it.name }.forEach { chat(session, "§e- ${it.name}") }
+    }
+
+    private fun chat(session: NetBound, msg: String) {
+        session.clientBound(TextPacket().apply {
+            type = TextPacket.Type.RAW
+            isNeedsTranslation = false
+            message = msg
+            xuid = ""
+            platformChatId = ""
+        })
     }
 }

@@ -1,57 +1,75 @@
 package com.project.lumina.client.game.module.impl.world
 
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import com.project.lumina.client.constructors.GameManager
+import android.content.Context
+import android.view.View
+import android.view.ViewGroup
+import android.widget.*
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import java.io.File
 
-@Composable
-fun LitematicaCategoryContent() {
-    val litematica = GameManager.elements.filterIsInstance<LitematicaElement>().firstOrNull()
+class LitematicaCategoryContent(context: Context) : LinearLayout(context) {
 
-    Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
-        Text("Litematica", fontSize = 18.sp, color = Color.White)
-        Spacer(modifier = Modifier.height(8.dp))
+    private val schematicDir = File(LitematicaElement.SCHEMATIC_DIR)
+    private val adapter = SchematicAdapter(mutableListOf())
+    private lateinit var statusText: TextView
 
-        if (litematica == null) {
-            Text("Module not found", color = Color.Red)
-            return
+    init { orientation = VERTICAL; build() }
+
+    private fun build() {
+        addView(TextView(context).apply {
+            text = "Litematica Schematics"
+            textSize = 16f
+            setPadding(24, 16, 24, 8)
+            setTextColor(0xFFFFAA00.toInt())
+        })
+        statusText = TextView(context).apply {
+            text = "Dir: ${LitematicaElement.SCHEMATIC_DIR}"
+            textSize = 11f
+            setPadding(24, 0, 24, 8)
+            setTextColor(0xFFAAAAAA.toInt())
         }
+        addView(statusText)
+        addView(Button(context).apply {
+            text = "Refresh"
+            setOnClickListener { refreshList() }
+            layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).also { it.setMargins(24, 4, 24, 4) }
+        })
+        addView(RecyclerView(context).apply {
+            layoutManager = LinearLayoutManager(context)
+            this.adapter = this@LitematicaCategoryContent.adapter
+            layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, (200 * resources.displayMetrics.density).toInt()).also { it.setMargins(24, 4, 24, 4) }
+        })
+        addView(TextView(context).apply {
+            text = "Commands:
+%schem load <file>
+%schem place <x> <y> <z>
+%schem layer <n> | clear | list"
+            textSize = 11f
+            setPadding(24, 8, 24, 8)
+            setTextColor(0xFFCCCCCC.toInt())
+        })
+        refreshList()
+    }
 
-        val instance = LitematicaElement.pendingInstance
-        if (instance == null) {
-            Text("No schematic loaded.\nEnable Litematica module first.", color = Color.Gray, fontSize = 12.sp)
-            return
-        }
+    fun refreshList() {
+        if (!schematicDir.exists()) schematicDir.mkdirs()
+        val files = schematicDir.listFiles { f ->
+            f.name.endsWith(".litematic") || f.name.endsWith(".schematic") || f.name.endsWith(".nbt")
+        }?.sortedBy { it.name } ?: emptyList()
+        adapter.update(files.map { it.name })
+        statusText.text = "${files.size} file(s) in ${LitematicaElement.SCHEMATIC_DIR}"
+    }
 
-        val blockCounts: List<Pair<String, Int>> = instance.getBlockCounts()
-            .entries
-            .map { entry -> Pair(entry.key, entry.value) }
-            .sortedByDescending { it.second }
-
-        val total = blockCounts.sumOf { it.second }
-        Text("Blocks needed: $total total", color = Color.White, fontSize = 13.sp)
-        Spacer(modifier = Modifier.height(6.dp))
-
-        LazyColumn {
-            items(blockCounts) { pair ->
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(pair.first, color = Color.White, fontSize = 12.sp)
-                    Text("x${pair.second}", color = Color(0xFF4CAF50), fontSize = 12.sp)
-                }
-                HorizontalDivider(color = Color.White.copy(alpha = 0.1f), thickness = 0.5.dp)
-            }
-        }
+    inner class SchematicAdapter(private val items: MutableList<String>) : RecyclerView.Adapter<SchematicAdapter.VH>() {
+        fun update(new: List<String>) { items.clear(); items.addAll(new); notifyDataSetChanged() }
+        inner class VH(v: View) : RecyclerView.ViewHolder(v) { val tv = v as TextView }
+        override fun onCreateViewHolder(parent: ViewGroup, vt: Int) = VH(TextView(parent.context).apply {
+            id = android.R.id.text1; textSize = 13f; setPadding(16, 12, 16, 12)
+            setTextColor(0xFFEEEEEE.toInt())
+            layoutParams = RecyclerView.LayoutParams(RecyclerView.LayoutParams.MATCH_PARENT, RecyclerView.LayoutParams.WRAP_CONTENT)
+        })
+        override fun onBindViewHolder(h: VH, pos: Int) { h.tv.text = items[pos] }
+        override fun getItemCount() = items.size
     }
 }

@@ -1,131 +1,210 @@
 package com.project.lumina.client.game.module.impl.world
 
-import org.cloudburstmc.math.vector.Vector3i
-import java.io.InputStream
-import java.util.zip.GZIPInputStream
+import android.util.Log
+import java.io.File
 import java.io.DataInputStream
+import java.io.FileInputStream
+import java.util.zip.GZIPInputStream
 
-data class SchematicBlock(val pos: Vector3i, val blockName: String)
+data class SchematicBlock(val x: Int, val y: Int, val z: Int, val name: String)
 
 object LitematicaParser {
+    private const val TAG = "LitematicaParser"
 
-    fun parse(input: InputStream, fileName: String): List<SchematicBlock> {
-        return when {
-            fileName.endsWith(".litematic") -> parseLitematic(input)
-            fileName.endsWith(".schematic") -> parseSchematic(input)
-            fileName.endsWith(".nbt") -> parseNbt(input)
-            else -> emptyList()
-        }
-    }
-
-    private fun readNbtTag(dis: DataInputStream): Pair<String, Any?> {
-        val type = dis.readByte().toInt()
-        if (type == 0) return Pair("", null) // TAG_End
-        val nameLen = dis.readShort().toInt()
-        val name = String(ByteArray(nameLen).also { dis.readFully(it) })
-        val value = readPayload(type, dis)
-        return Pair(name, value)
-    }
-
-    private fun readPayload(type: Int, dis: DataInputStream): Any? = when (type) {
-        1 -> dis.readByte()
-        2 -> dis.readShort()
-        3 -> dis.readInt()
-        4 -> dis.readLong()
-        5 -> dis.readFloat()
-        6 -> dis.readDouble()
-        7 -> ByteArray(dis.readInt()).also { dis.readFully(it) }
-        8 -> String(ByteArray(dis.readShort().toInt()).also { dis.readFully(it) })
-        9 -> {
-            val listType = dis.readByte().toInt()
-            val size = dis.readInt()
-            (0 until size).map { readPayload(listType, dis) }
-        }
-        10 -> {
-            val map = mutableMapOf<String, Any?>()
-            while (true) {
-                val t = dis.readByte().toInt()
-                if (t == 0) break
-                val nLen = dis.readShort().toInt()
-                val n = String(ByteArray(nLen).also { dis.readFully(it) })
-                map[n] = readPayload(t, dis)
+    fun parse(file: File): List<SchematicBlock> {
+        return try {
+            when {
+                file.name.endsWith(".litematic") -> parseLitematic(file)
+                file.name.endsWith(".schematic")  -> parseSchematic(file)
+                file.name.endsWith(".nbt")        -> parseStructureNbt(file)
+                else -> { Log.w(TAG, "Unknown type: ${file.name}"); emptyList() }
             }
-            map
+        } catch (e: Exception) {
+            Log.e(TAG, "Parse failed for ${file.name}: ${e.message}", e)
+            emptyList()
         }
-        11 -> IntArray(dis.readInt()).also { arr -> repeat(arr.size) { arr[it] = dis.readInt() } }
-        12 -> LongArray(dis.readInt()).also { arr -> repeat(arr.size) { arr[it] = dis.readLong() } }
-        else -> null
+    }
+
+    private const val TAG_END = 0; private const val TAG_BYTE = 1
+    private const val TAG_SHORT = 2; private const val TAG_INT = 3
+    private const val TAG_LONG = 4; private const val TAG_FLOAT = 5
+    private const val TAG_DOUBLE = 6; private const val TAG_BYTE_ARRAY = 7
+    private const val TAG_STRING = 8; private const val TAG_LIST = 9
+    private const val TAG_COMPOUND = 10; private const val TAG_INT_ARRAY = 11
+    private const val TAG_LONG_ARRAY = 12
+
+    data class NbtTag(val type: Int, val value: Any?)
+
+    private fun readNbt(file: File): Map<String, NbtTag> {
+        val din = DataInputStream(GZIPInputStream(FileInputStream(file)))
+        val rootType = din.readByte().toInt()
+        if (rootType != TAG_COMPOUND) error("Expected TAG_Compound root, got $rootType")
+        readNbtString(din)
+        val result = readCompound(din)
+        din.close()
+        return result
+    }
+
+    private fun readNbtString(din: DataInputStream): String {
+        val len = din.readShort().toInt() and 0xFFFF
+        val bytes = ByteArray(len)
+        din.readFully(bytes)
+        return String(bytes, Charsets.UTF_8)
+    }
+
+    private fun readPayload(din: DataInputStream, type: Int): Any? = when (type) {
+        TAG_END        -> null
+        TAG_BYTE       -> din.readByte()
+        TAG_SHORT      -> din.readShort()
+        TAG_INT        -> din.readInt()
+        TAG_LONG       -> din.readLong()
+        TAG_FLOAT      -> din.readFloat()
+        TAG_DOUBLE     -> din.readDouble()
+        TAG_BYTE_ARRAY -> { val len = din.readInt(); ByteArray(len).also { din.readFully(it) } }
+        TAG_STRING     -> readNbtString(din)
+        TAG_LIST       -> { val et = din.readByte().toInt(); val sz = din.readInt(); (0 until sz).map { NbtTag(et, readPayload(din, et)) } }
+        TAG_COMPOUND   -> readCompound(din)
+        TAG_INT_ARRAY  -> { val len = din.readInt(); IntArray(len) { din.readInt() } }
+        TAG_LONG_ARRAY -> { val len = din.readInt(); LongArray(len) { din.readLong() } }
+        else -> error("Unknown NBT type: $type")
+    }
+
+    private fun readCompound(din: DataInputStream): Map<String, NbtTag> {
+        val map = mutableMapOf<String, NbtTag>()
+        while (true) {
+            val type = din.readByte().toInt()
+            if (type == TAG_END) break
+            map[readNbtString(din)] = NbtTag(type, readPayload(din, type))
+        }
+        return map
     }
 
     @Suppress("UNCHECKED_CAST")
-    private fun parseLitematic(input: InputStream): List<SchematicBlock> {
+    private fun Map<String, NbtTag>.compound(key: String) = (this[key]?.value as? Map<String, NbtTag>) ?: emptyMap()
+    @Suppress("UNCHECKED_CAST")
+    private fun Map<String, NbtTag>.list(key: String) = (this[key]?.value as? List<NbtTag>) ?: emptyList()
+    private fun Map<String, NbtTag>.int(key: String) = when (val v = this[key]?.value) { is Int -> v; is Short -> v.toInt(); is Byte -> v.toInt(); else -> 0 }
+    private fun Map<String, NbtTag>.str(key: String) = this[key]?.value as? String ?: ""
+    private fun Map<String, NbtTag>.longs(key: String) = this[key]?.value as? LongArray ?: LongArray(0)
+    private fun Map<String, NbtTag>.bytes(key: String) = this[key]?.value as? ByteArray ?: ByteArray(0)
+
+    private fun ceilLog2(v: Int): Int { var n = v; var b = 0; while (n > 1) { n = n shr 1; b++ }; return if (1 shl b < v) b + 1 else b }
+
+    private fun readPackedValue(longs: LongArray, index: Int, bitsPerEntry: Int): Int {
+        val epl = 64 / bitsPerEntry
+        val ai = index / epl
+        val bi = (index % epl) * bitsPerEntry
+        val mask = (1L shl bitsPerEntry) - 1L
+        if (ai >= longs.size) return 0
+        return ((longs[ai] ushr bi) and mask).toInt()
+    }
+
+    private fun parseLitematic(file: File): List<SchematicBlock> {
+        val root = readNbt(file)
+        val regions = root.compound("Regions")
         val blocks = mutableListOf<SchematicBlock>()
-        try {
-            val dis = DataInputStream(GZIPInputStream(input))
-            // skip root tag header
-            dis.readByte(); val rLen = dis.readShort().toInt(); dis.readFully(ByteArray(rLen))
-            val root = readPayload(10, dis) as? Map<String, Any?> ?: return emptyList()
-            val regions = root["Regions"] as? Map<String, Any?> ?: return emptyList()
-            for ((_, regionVal) in regions) {
-                val region = regionVal as? Map<String, Any?> ?: continue
-                val palette = (region["BlockStatePalette"] as? List<*>)?.mapNotNull {
-                    ((it as? Map<String, Any?>)?.get("Name") as? String)?.substringAfter(":")
-                } ?: continue
-                val size = region["Size"] as? Map<String, Any?> ?: continue
-                val sx = ((size["x"] as? Number)?.toInt() ?: continue).let { if (it < 0) -it else it }
-                val sy = ((size["y"] as? Number)?.toInt() ?: continue).let { if (it < 0) -it else it }
-                val sz = ((size["z"] as? Number)?.toInt() ?: continue).let { if (it < 0) -it else it }
-                val blockStates = region["BlockStates"] as? LongArray ?: continue
-                val bits = maxOf(2, Integer.numberOfTrailingZeros(Integer.highestOneBit(palette.size - 1) shl 1))
-                val mask = (1L shl bits) - 1L
-                var i = 0
-                outer@ for (y in 0 until sy) for (z in 0 until sz) for (x in 0 until sx) {
-                    val bitPos = i.toLong() * bits
-                    val idx = (bitPos / 64).toInt()
-                    val off = (bitPos % 64).toInt()
-                    if (idx >= blockStates.size) break@outer
-                    val id = if (off + bits <= 64) {
-                        ((blockStates[idx] ushr off) and mask).toInt()
-                    } else {
-                        val lo = (blockStates[idx] ushr off) and mask
-                        val hi = if (idx + 1 < blockStates.size) blockStates[idx + 1] else 0L
-                        (lo or (hi shl (64 - off))).and(mask).toInt()
-                    }
-                    val name = palette.getOrNull(id) ?: "air"
-                    if (name != "air") blocks.add(SchematicBlock(Vector3i.from(x, y, z), name))
-                    i++
-                }
-            }
-        } catch (e: Exception) { e.printStackTrace() }
+        for ((_, rt) in regions) {
+            @Suppress("UNCHECKED_CAST")
+            val region = rt.value as? Map<String, NbtTag> ?: continue
+            blocks += parseLitematicRegion(region)
+        }
+        Log.d(TAG, "Litematic: ${blocks.size} blocks")
         return blocks
     }
 
     @Suppress("UNCHECKED_CAST")
-    private fun parseSchematic(input: InputStream): List<SchematicBlock> {
+    private fun parseLitematicRegion(region: Map<String, NbtTag>): List<SchematicBlock> {
+        val paletteList = region.list("BlockStatePalette")
+        if (paletteList.isEmpty()) return emptyList()
+        val palette = paletteList.map { e -> (e.value as? Map<String, NbtTag>)?.str("Name")?.ifEmpty { "minecraft:air" } ?: "minecraft:air" }
+        val size = region.compound("Size")
+        val sX = Math.abs(size.int("x")); val sY = Math.abs(size.int("y")); val sZ = Math.abs(size.int("z"))
+        val volume = sX * sY * sZ
+        if (volume <= 0) return emptyList()
+        val bpe = maxOf(2, ceilLog2(palette.size))
+        val rawLongs = region.longs("BlockStates")
+        val pos = region.compound("Position")
+        val oX = pos.int("x"); val oY = pos.int("y"); val oZ = pos.int("z")
         val blocks = mutableListOf<SchematicBlock>()
-        try {
-            val dis = DataInputStream(GZIPInputStream(input))
-            dis.readByte(); val rLen = dis.readShort().toInt(); dis.readFully(ByteArray(rLen))
-            val root = readPayload(10, dis) as? Map<String, Any?> ?: return emptyList()
-            val width = (root["Width"] as? Short)?.toInt() ?: return emptyList()
-            val height = (root["Height"] as? Short)?.toInt() ?: return emptyList()
-            val length = (root["Length"] as? Short)?.toInt() ?: return emptyList()
-            val blockIds = root["Blocks"] as? ByteArray ?: return emptyList()
-            val legacyMap = mapOf(1 to "stone", 2 to "grass", 3 to "dirt", 4 to "cobblestone",
-                5 to "planks", 7 to "bedrock", 12 to "sand", 13 to "gravel",
-                17 to "log", 18 to "leaves", 20 to "glass", 35 to "wool",
-                41 to "gold_block", 42 to "iron_block", 45 to "brick_block",
-                57 to "diamond_block", 73 to "redstone_ore", 89 to "glowstone")
-            for (y in 0 until height) for (z in 0 until length) for (x in 0 until width) {
-                val id = blockIds[y * length * width + z * width + x].toInt() and 0xFF
-                if (id != 0) {
-                    val name = legacyMap[id] ?: "stone"
-                    blocks.add(SchematicBlock(Vector3i.from(x, y, z), name))
-                }
-            }
-        } catch (e: Exception) { e.printStackTrace() }
+        for (i in 0 until volume) {
+            val name = palette.getOrElse(readPackedValue(rawLongs, i, bpe)) { "minecraft:air" }
+            if (name == "minecraft:air") continue
+            blocks += SchematicBlock(i % sX + oX, i / (sX * sZ) + oY, (i / sX) % sZ + oZ, name)
+        }
         return blocks
     }
 
-    private fun parseNbt(input: InputStream): List<SchematicBlock> = parseLitematic(input)
+    private fun parseSchematic(file: File): List<SchematicBlock> {
+        val root = readNbt(file)
+        if (root.containsKey("Palette")) return parseSpongeSchematic(root)
+        val w = root.int("Width"); val h = root.int("Height"); val l = root.int("Length")
+        val ids = root.bytes("Blocks"); val data = root.bytes("Data")
+        val blocks = mutableListOf<SchematicBlock>()
+        for (y in 0 until h) for (z in 0 until l) for (x in 0 until w) {
+            val i = (y * l + z) * w + x
+            val id = ids.getOrElse(i) { 0 }.toInt() and 0xFF
+            if (id == 0) continue
+            blocks += SchematicBlock(x, y, z, legacyIdToName(id, data.getOrElse(i) { 0 }.toInt() and 0x0F))
+        }
+        Log.d(TAG, "MCEdit schematic: ${blocks.size} blocks")
+        return blocks
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun parseSpongeSchematic(root: Map<String, NbtTag>): List<SchematicBlock> {
+        val w = root.int("Width"); val h = root.int("Height"); val l = root.int("Length")
+        val pm = mutableMapOf<Int, String>()
+        for ((name, tag) in root.compound("Palette")) pm[tag.value as? Int ?: continue] = name.substringBefore("[")
+        val bd = root.bytes("BlockData")
+        val blocks = mutableListOf<SchematicBlock>()
+        var i = 0; var pos = 0
+        while (pos < bd.size) {
+            var value = 0; var shift = 0; var b: Int
+            do { b = bd[pos++].toInt() and 0xFF; value = value or ((b and 0x7F) shl shift); shift += 7 } while ((b and 0x80) != 0 && pos < bd.size)
+            val name = pm.getOrElse(value) { "minecraft:air" }
+            if (name != "minecraft:air") blocks += SchematicBlock(i % w, i / (w * l), (i / w) % l, name)
+            i++
+        }
+        Log.d(TAG, "Sponge schematic: ${blocks.size} blocks")
+        return blocks
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun parseStructureNbt(file: File): List<SchematicBlock> {
+        val root = readNbt(file)
+        val palette = root.list("palette").map { e -> (e.value as? Map<String, NbtTag>)?.str("Name")?.ifEmpty { "minecraft:air" } ?: "minecraft:air" }
+        val blocks = mutableListOf<SchematicBlock>()
+        for (entry in root.list("blocks")) {
+            val c = entry.value as? Map<String, NbtTag> ?: continue
+            val name = palette.getOrElse(c.int("state")) { "minecraft:air" }
+            if (name == "minecraft:air") continue
+            val pl = c.list("pos"); if (pl.size < 3) continue
+            blocks += SchematicBlock(pl[0].value as? Int ?: continue, pl[1].value as? Int ?: continue, pl[2].value as? Int ?: continue, name)
+        }
+        Log.d(TAG, "Structure NBT: ${blocks.size} blocks")
+        return blocks
+    }
+
+    private fun legacyIdToName(id: Int, meta: Int): String = when (id) {
+        0 -> "minecraft:air"; 1 -> "minecraft:stone"; 2 -> "minecraft:grass_block"
+        3 -> "minecraft:dirt"; 4 -> "minecraft:cobblestone"
+        5 -> when (meta) { 1->"minecraft:spruce_planks"; 2->"minecraft:birch_planks"; 3->"minecraft:jungle_planks"; 4->"minecraft:acacia_planks"; 5->"minecraft:dark_oak_planks"; else->"minecraft:oak_planks" }
+        7 -> "minecraft:bedrock"; 8, 9 -> "minecraft:water"; 10, 11 -> "minecraft:lava"
+        12 -> "minecraft:sand"; 13 -> "minecraft:gravel"; 14 -> "minecraft:gold_ore"
+        15 -> "minecraft:iron_ore"; 16 -> "minecraft:coal_ore"; 17 -> "minecraft:oak_log"
+        18 -> "minecraft:oak_leaves"; 20 -> "minecraft:glass"; 24 -> "minecraft:sandstone"
+        35 -> "minecraft:white_wool"; 41 -> "minecraft:gold_block"; 42 -> "minecraft:iron_block"
+        45 -> "minecraft:bricks"; 46 -> "minecraft:tnt"; 49 -> "minecraft:obsidian"
+        54 -> "minecraft:chest"; 56 -> "minecraft:diamond_ore"; 57 -> "minecraft:diamond_block"
+        58 -> "minecraft:crafting_table"; 61, 62 -> "minecraft:furnace"
+        73, 74 -> "minecraft:redstone_ore"; 79 -> "minecraft:ice"; 80 -> "minecraft:snow_block"
+        82 -> "minecraft:clay"; 86 -> "minecraft:pumpkin"; 87 -> "minecraft:netherrack"
+        88 -> "minecraft:soul_sand"; 89 -> "minecraft:glowstone"; 91 -> "minecraft:jack_o_lantern"
+        98 -> "minecraft:stone_bricks"; 112 -> "minecraft:nether_bricks"; 121 -> "minecraft:end_stone"
+        123, 124 -> "minecraft:redstone_lamp"; 133 -> "minecraft:emerald_block"
+        152 -> "minecraft:redstone_block"; 155 -> "minecraft:quartz_block"
+        159 -> "minecraft:white_terracotta"; 172 -> "minecraft:terracotta"
+        173 -> "minecraft:coal_block"; 174 -> "minecraft:packed_ice"
+        else -> "minecraft:stone"
+    }
 }
