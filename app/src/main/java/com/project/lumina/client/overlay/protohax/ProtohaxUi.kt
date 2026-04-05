@@ -32,6 +32,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastForEach
 import com.project.lumina.client.constructors.CheatCategory
+import com.project.lumina.client.game.module.impl.world.LitematicaCategoryContent
 import com.project.lumina.client.overlay.manager.OverlayManager
 import com.project.lumina.client.overlay.manager.OverlayWindow
 import com.project.lumina.client.ui.component.NavigationRailX

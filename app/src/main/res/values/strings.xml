@@ -287,4 +287,5 @@
     <string name="chat_message_updated">Message updated</string>
     <string name="chat_message_deleted">Message deleted</string>
     <string name="module_litematica">Litematica</string>
+    <string name="litematica">Litematica</string>
 </resources>

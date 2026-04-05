@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.sp
 import com.project.lumina.client.R
 import com.project.lumina.client.chat.ChatCategoryContent
 import com.project.lumina.client.constructors.CheatCategory
+import com.project.lumina.client.game.module.impl.world.LitematicaCategoryContent
 import com.project.lumina.client.constructors.Element
 import com.project.lumina.client.overlay.manager.KitsuSettingsOverlay
 import com.project.lumina.client.overlay.manager.OverlayManager
@@ -463,6 +464,7 @@ class KitsuGUI : OverlayWindow() {
         ) {
             when (selectedCheatCategory) {
                 CheatCategory.Config -> ConfigCategoryContent()
+                CheatCategory.Litematica -> LitematicaCategoryContent()
                 CheatCategory.Home -> HomeCategoryUi()
                 CheatCategory.Chat -> ChatCategoryContent()
                 else -> ModuleContent(

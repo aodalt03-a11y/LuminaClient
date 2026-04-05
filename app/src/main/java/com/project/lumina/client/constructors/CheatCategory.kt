@@ -36,6 +36,10 @@ enum class CheatCategory(
         iconResId = R.drawable.messages_24,
         labelResId = R.string.chat
     ),
+    Litematica(
+        iconResId = ir.alirezaivaz.tablericons.R.drawable.ic_cube_scan,
+        labelResId = R.string.litematica
+    ),
     Config(
         iconResId = R.drawable.ic_cloud_upload_black_24dp,
         labelResId = R.string.config
