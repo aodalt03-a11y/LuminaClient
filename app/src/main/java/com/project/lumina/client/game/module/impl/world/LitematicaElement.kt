@@ -4,6 +4,9 @@ import android.util.Log
 import com.project.lumina.client.constructors.CheatCategory
 import com.project.lumina.client.constructors.Element
 import com.project.lumina.client.game.InterceptablePacket
+import com.project.lumina.relay.definition.Definitions
+import com.project.lumina.relay.definition.NbtBlockDefinitionRegistry
+import org.cloudburstmc.protocol.bedrock.data.definitions.BlockDefinition
 import org.cloudburstmc.protocol.bedrock.packet.TextPacket
 import org.cloudburstmc.protocol.bedrock.packet.UpdateBlockPacket
 import org.cloudburstmc.math.vector.Vector3i
@@ -30,7 +33,7 @@ class LitematicaElement : Element(
             return SEARCH_DIRS.flatMap { walkDir(File(it), exts) }.sortedBy { it.name }
         }
 
-        private fun walkDir(dir: File, exts: List<String>): List<File> {
+        fun walkDir(dir: File, exts: List<String>): List<File> {
             if (!dir.exists() || !dir.isDirectory) return emptyList()
             val results = mutableListOf<File>()
             dir.listFiles()?.forEach { f ->
@@ -48,9 +51,46 @@ class LitematicaElement : Element(
     private var currentLayer: Int? = null
     private var ghostActive = false
 
-    // Get the exact registry the Minecraft client uses to decode block packets
-    private fun getBlockRegistry() =
-        session.luminaRelaySession.server.peer.codecHelper.blockDefinitions
+    // Built once per session from the actual registry
+    private var nameToDefinition: Map<String, BlockDefinition>? = null
+
+    private fun buildNameLookup(): Map<String, BlockDefinition> {
+        // Use whichever registry was set by GamingPacketHandler on StartGamePacket
+        val reg = session.luminaRelaySession.server.peer.codecHelper.blockDefinitions
+            as? NbtBlockDefinitionRegistry
+            ?: Definitions.blockDefinitionsHashed as? NbtBlockDefinitionRegistry
+            ?: Definitions.blockDefinitions as? NbtBlockDefinitionRegistry
+            ?: return emptyMap()
+
+        val map = mutableMapOf<String, BlockDefinition>()
+        // Access the internal definitions map via reflection once to build our lookup
+        try {
+            val field = NbtBlockDefinitionRegistry::class.java.getDeclaredField("definitions")
+            field.isAccessible = true
+            @Suppress("UNCHECKED_CAST")
+            val defs = field.get(reg) as? Map<*, *> ?: return emptyMap()
+            for ((_, v) in defs) {
+                val defClass = v?.javaClass ?: continue
+                val tagField = try { defClass.getDeclaredField("tag").also { it.isAccessible = true } } catch (e: Exception) { continue }
+                val tag = tagField.get(v) ?: continue
+                val nameMethod = try { tag.javaClass.getMethod("getString", String::class.java) } catch (e: Exception) { continue }
+                val blockName = nameMethod.invoke(tag, "name") as? String ?: continue
+                val def = v as? BlockDefinition ?: continue
+                map[blockName] = def
+                // Also store without namespace prefix for fallback
+                if (blockName.contains(":")) map[blockName.substringAfter(":")] = def
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to build name lookup: ${e.message}", e)
+        }
+        Log.d(TAG, "Built name lookup: ${map.size} entries")
+        return map
+    }
+
+    private fun getDefinitionFor(name: String): BlockDefinition? {
+        val lookup = nameToDefinition ?: buildNameLookup().also { nameToDefinition = it }
+        return lookup[name] ?: lookup[name.substringAfter(":")]
+    }
 
     override fun beforePacketBound(interceptablePacket: InterceptablePacket) {
         if (!isEnabled) return
@@ -62,6 +102,13 @@ class LitematicaElement : Element(
                 handleChat(msg)
             }
         }
+    }
+
+    override fun onDisabled() {
+        super.onDisabled()
+        nameToDefinition = null
+        blocks = emptyList()
+        ghostActive = false
     }
 
     private fun handleChat(msg: String) {
@@ -86,13 +133,15 @@ class LitematicaElement : Element(
             }
             "clear" -> { blocks = emptyList(); ghostActive = false; chat("\u00a7aCleared") }
             "list"  -> listSchematics()
-            else    -> {
+            "rebuild" -> { nameToDefinition = null; chat("\u00a7aRegistry cache cleared") }
+            else -> {
                 chat("\u00a76=== Litematica ===")
                 chat("\u00a7e%schem load <file>")
                 chat("\u00a7e%schem place <x> <y> <z>")
                 chat("\u00a7e%schem layer <n>  \u00a77or blank for all")
                 chat("\u00a7e%schem clear")
                 chat("\u00a7e%schem list")
+                chat("\u00a7e%schem rebuild  \u00a77reload registry")
             }
         }
     }
@@ -104,7 +153,7 @@ class LitematicaElement : Element(
             .firstOrNull { it.nameWithoutExtension == name || it.name == name }
             ?: run {
                 chat("\u00a7cNot found: $name")
-                chat("\u00a77Searched: ${SEARCH_DIRS.joinToString()}")
+                chat("\u00a77Searched: ${SEARCH_DIRS.size} directories recursively")
                 return
             }
         chat("\u00a77Loading \u00a7e${file.name}\u00a77...")
@@ -112,6 +161,7 @@ class LitematicaElement : Element(
         if (parsed.isEmpty()) { chat("\u00a7cParse failed or empty"); return }
         blocks = parsed
         ghostActive = false
+        nameToDefinition = null // Reset lookup for new session
         chat("\u00a7aLoaded \u00a7e${parsed.size} \u00a7ablocks from \u00a7e${file.name}")
         chat("\u00a77Use: \u00a7e%schem place <x> <y> <z>")
     }
@@ -121,34 +171,17 @@ class LitematicaElement : Element(
         val toPlace = if (currentLayer != null) blocks.filter { it.y == currentLayer } else blocks
         if (toPlace.isEmpty()) { chat("\u00a7cNo blocks on layer $currentLayer"); return }
 
-        val registry = getBlockRegistry()
-        chat("\u00a77Registry: ${registry?.javaClass?.simpleName ?: "null"}")
+        // Build lookup if not built yet
+        val lookup = nameToDefinition ?: buildNameLookup().also { nameToDefinition = it }
+        chat("\u00a77Registry entries: \u00a7e${lookup.size}")
 
         var sent = 0
         var missing = 0
+        val missingNames = mutableSetOf<String>()
 
         for (block in toPlace) {
-            // Find runtimeId by scanning the registry for matching block name
-            var rid = -1
-            var def: org.cloudburstmc.protocol.bedrock.data.definitions.BlockDefinition? = null
-
-            // Try runtime IDs 0..20000 to find one whose definition name matches
-            for (i in 0..20000) {
-                val d = registry?.getDefinition(i) ?: continue
-                // BlockDefinition from server codec - check if it's an NbtBlockDefinition
-                if (d.javaClass.simpleName.contains("Nbt")) {
-                    try {
-                        val tag = d.javaClass.getMethod("getTag").invoke(d)
-                        val blockName = tag?.javaClass?.getMethod("getString", String::class.java)
-                            ?.invoke(tag, "name") as? String ?: continue
-                        if (blockName == block.name || blockName == block.name.substringAfter(":")) {
-                            rid = i; def = d; break
-                        }
-                    } catch (e: Exception) { continue }
-                }
-            }
-
-            if (def == null) { missing++; continue }
+            val def = lookup[block.name] ?: lookup[block.name.substringAfter(":")]
+            if (def == null) { missing++; missingNames.add(block.name); continue }
 
             session.clientBound(UpdateBlockPacket().apply {
                 blockPosition = Vector3i.from(block.x + originX, block.y + originY, block.z + originZ)
@@ -161,6 +194,9 @@ class LitematicaElement : Element(
         }
         ghostActive = true
         chat("\u00a7aPlaced \u00a7e$sent\u00a7a blocks${if (missing > 0) " \u00a7c($missing unknown)" else ""}")
+        if (missingNames.isNotEmpty()) {
+            chat("\u00a7cUnknown: ${missingNames.take(3).joinToString()}${if (missingNames.size > 3) "..." else ""}")
+        }
     }
 
     private fun listSchematics() {
@@ -172,12 +208,6 @@ class LitematicaElement : Element(
 
     private fun chat(msg: String) {
         if (!isSessionCreated) return
-        session.clientBound(TextPacket().apply {
-            type = TextPacket.Type.RAW
-            isNeedsTranslation = false
-            message = msg
-            xuid = ""
-            platformChatId = ""
-        })
+        session.displayClientMessage(msg)
     }
 }
