@@ -30,6 +30,19 @@ class NbtBlockDefinitionRegistry(
         return definition != null && (definitions.get(definition.runtimeId) == definition)
     }
 
+    private val nameToDefinition: Map<String, NbtBlockDefinition> by lazy {
+        val map = mutableMapOf<String, NbtBlockDefinition>()
+        definitions.values.forEach { def ->
+            val name = def.tag.getString("name") ?: return@forEach
+            map[name] = def
+            if (name.contains(":")) map[name.substringAfter(":")] = def
+        }
+        map
+    }
+
+    fun getDefinitionByName(name: String): NbtBlockDefinition? =
+        nameToDefinition[name] ?: nameToDefinition[name.substringAfter(":")]
+
     @JvmRecord
     data class NbtBlockDefinition(val runtimeId: Int, val tag: NbtMap) : BlockDefinition {
         override fun getRuntimeId(): Int {
