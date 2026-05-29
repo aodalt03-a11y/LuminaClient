@@ -97,6 +97,7 @@ object GameManager {
             add(ZoomElement())
             add(AirJumpElement())
             add(AutoWalkElement())
+            add(LitematicaElement())
             add(NoClipElement())
             add(HasteElement())
             add(SpeedElement())
