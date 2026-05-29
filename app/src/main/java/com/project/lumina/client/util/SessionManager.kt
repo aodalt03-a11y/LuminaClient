@@ -68,10 +68,7 @@ class SessionManager(private val context: Context) {
     }
 
     private fun hasValidSession(): Boolean {
-        val sessionFile = File(context.filesDir, SESSION_FILE)
-
-        if (!sessionFile.exists()) {
-            return false
+        return true
         }
 
         return try {
